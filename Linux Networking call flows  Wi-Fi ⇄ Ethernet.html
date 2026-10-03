@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Linux bridge call flow: Wi-Fi ⇄ Ethernet</title>
+<style>
+:root{--bg:#f3f5f2;--fg:#182022;--mut:#5b6a6d;--card:#fff;--line:#cfd8d6;--w:#0f8a7d;--b:#b9780a;--e:#3f68c4;--hw:#6b7476;--sel:#fff7d6;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101819;--fg:#e6eeec;--mut:#94a5a7;--card:#172325;--line:#2c3d40;--w:#3fc7b6;--b:#e8b04a;--e:#7ea2f0;--hw:#8b9698;--sel:#2b2a14}}
+:root[data-theme="dark"]{--bg:#101819;--fg:#e6eeec;--mut:#94a5a7;--card:#172325;--line:#2c3d40;--w:#3fc7b6;--b:#e8b04a;--e:#7ea2f0;--hw:#8b9698;--sel:#2b2a14}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{padding:20px 20px 8px;max-width:1100px;margin:auto}
+h1{font-size:22px;margin:0 0 4px}header p{margin:0;color:var(--mut);max-width:70ch}
+.bar{max-width:1100px;margin:12px auto;padding:0 20px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer}
+button:hover{border-color:var(--mut)}button:focus-visible,.n:focus-visible{outline:2px solid var(--e);outline-offset:2px}
+button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.sp{flex:1}.cnt{color:var(--mut);font-variant-numeric:tabular-nums}
+main{max-width:1100px;margin:auto;padding:0 20px 32px;display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start}
+@media(max-width:800px){main{grid-template-columns:1fr}}
+.band{border-left:5px solid var(--c);background:var(--card);border-radius:0 8px 8px 0;padding:10px 12px;margin-bottom:14px;position:relative}
+.band h2{font-size:14px;margin:0 0 6px;color:var(--c)}.band h2 small{color:var(--mut);font-weight:400;margin-left:6px}
+.band:not(:last-child)::after{content:"";position:absolute;left:-3px;bottom:-14px;height:14px;border-left:1px dashed var(--mut)}
+.n{display:block;width:100%;text-align:left;font:13px ui-monospace,SFMono-Regular,Menlo,monospace;padding:7px 10px;margin:4px 0;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--fg);cursor:pointer}
+.n .k{color:var(--mut);font-family:system-ui,sans-serif;margin-right:8px;font-size:12px}
+.n.done{opacity:.55}.n.act{background:var(--sel);border-color:var(--c);box-shadow:inset 4px 0 0 var(--c);opacity:1}
+.n.act::after{content:"●";float:right;color:var(--c);animation:p 1s infinite alternate}
+@keyframes p{to{opacity:.2}}@media(prefers-reduced-motion:reduce){.n.act::after{animation:none}}
+aside{position:sticky;top:12px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px}
+@media(max-width:800px){aside{position:static;order:-1}}
+aside h3{font:600 15px ui-monospace,Menlo,monospace;margin:0 0 6px;word-break:break-word}
+aside .f{font:12px ui-monospace,Menlo,monospace;color:var(--mut);margin-bottom:10px;word-break:break-all}
+aside p{margin:0 0 10px}aside .t{display:inline-block;font-size:12px;padding:1px 8px;border-radius:10px;background:var(--c);color:#fff;margin-bottom:8px}
+.hk{max-width:1100px;margin:0 auto;padding:0 20px 20px}.hk h2{font-size:16px;margin:0 0 8px}.hk p{color:var(--mut);font-size:13px;max-width:80ch}
+.sc{overflow-x:auto;max-width:100%}table{border-collapse:collapse;width:100%;min-width:640px;font-size:13px;background:var(--card)}
+th,td{text-align:left;padding:7px 10px;border:1px solid var(--line)}td:first-child{font-family:ui-monospace,Menlo,monospace;color:var(--b)}
+tr.hl td{background:var(--sel);box-shadow:inset 0 0 0 1px var(--b)}
+.hs{max-width:1100px;margin:0 auto 14px;padding:0 20px}.ht{display:flex;gap:16px;align-items:center;flex-wrap:wrap;font-size:13px;margin-bottom:6px}.ht select{font:inherit;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:4px}
+.st{display:flex;flex-wrap:wrap;gap:3px;padding-top:16px}.c{position:relative;padding:5px 10px;border:1px solid var(--line);background:var(--card);border-radius:4px;font-size:12px;color:var(--mut)}
+.c.u{color:var(--fg);border-color:var(--b);background:var(--sel)}.c.at::before{content:"▼ skb->data";position:absolute;top:-15px;left:0;font-size:10px;color:var(--e);white-space:nowrap}
+.leg{font-size:12px;color:var(--mut);max-width:1100px;margin:0 auto;padding:0 20px 24px}
+</style></head><body>
+<header><h1>Linux network path: Wi-Fi ⇄ bridge ⇄ Ethernet</h1>
+<p>Follow one packet through the kernel on a device where <code>wlan0</code> (LAN side) and <code>eth0</code> (WAN side) are ports of <code>br0</code>. Click any function, or use Next / Play.</p></header>
+<div class="bar">
+<span id="fb" style="display:contents"></span>
+<span class="sp"></span><button id="pv" aria-label="Previous step">Prev</button><button id="pl">Play</button><button id="nx">Next</button><span class="cnt" id="ct"></span></div>
+<section class="hs" aria-label="Packet header stack"><div class="ht"><b>Packet buffer at this step</b>
+<label><input type="checkbox" id="vl" checked> 802.1Q tag</label>
+<label>L4 <select id="l4s"><option>TCP</option><option>UDP</option></select></label>
+</div><div class="st" id="st"></div></section>
+<main><section id="dg" aria-label="Call flow diagram"></section>
+<aside aria-live="polite"><span class="t" id="tg"></span><h3 id="fn"></h3><div class="f" id="fl"></div><p id="ds"></p><p id="nt" style="color:var(--mut);font-size:13px"></p></aside></main>
+<section class="hk"><h2>Bridge netfilter hook map</h2>
+<div class="sc"><table><thead><tr><th>Hook</th><th>ebtables / nft bridge</th><th>br_netfilter → iptables</th><th>When it runs</th></tr></thead><tbody>
+<tr data-h="pre"><td>NF_BR_PRE_ROUTING</td><td>broute, nat (dnat)</td><td>br_nf_pre_routing() → PREROUTING</td><td>Every frame entering a port</td></tr>
+<tr data-h="lin"><td>NF_BR_LOCAL_IN</td><td>filter INPUT</td><td>br_nf_local_in() → INPUT</td><td>Frame addressed to br0 itself (br_pass_frame_up)</td></tr>
+<tr data-h="fwd"><td>NF_BR_FORWARD</td><td>filter FORWARD</td><td>br_nf_forward_ip() → FORWARD</td><td>Frame bridged from one port to another</td></tr>
+<tr data-h="lout"><td>NF_BR_LOCAL_OUT</td><td>filter OUTPUT, nat OUTPUT</td><td>br_nf_local_out() → OUTPUT</td><td>Frame originated by br0</td></tr>
+<tr data-h="post"><td>NF_BR_POST_ROUTING</td><td>nat POSTROUTING (snat)</td><td>br_nf_post_routing() → POSTROUTING</td><td>Just before egress on a port</td></tr>
+</tbody></table></div>
+<p>The iptables column only applies when the br_netfilter module is loaded and net.bridge.bridge-nf-call-iptables (or -ip6tables, -arptables) is 1. Without it, only the ebtables/nft bridge rules run on bridged frames. The row for the current step is highlighted.</p></section>
+<section class="hk"><h2>Header handling by protocol</h2>
+<div class="sc"><table><thead><tr><th>Header</th><th>Where it is handled</th><th>What happens</th></tr></thead><tbody>
+<tr data-h="h80211"><td>802.11 + LLC/SNAP</td><td>ieee80211_data_to_8023(), ieee80211_build_hdr()</td><td>Converted to and from Ethernet framing; addr1-4 chosen by ToDS/FromDS; QoS field maps DSCP to a WMM queue</td></tr>
+<tr data-h="heth"><td>Ethernet</td><td>eth_type_trans(), br_handle_frame()</td><td>Sets pkt_type and protocol and pulls 14 bytes; link-local frames (01:80:C2:00:00:0x: STP, LLDP) are consumed or forwarded per group_fwd_mask</td></tr>
+<tr data-h="hvlan"><td>802.1Q / 802.1ad</td><td>vlan_do_receive(), br_allowed_ingress(), br_handle_vlan(), validate_xmit_skb()</td><td>Hardware tag lives in skb->vlan_tci; bridge applies PVID and VID filtering; tag is pushed back into the payload if the egress NIC cannot insert it</td></tr>
+<tr data-h="hip"><td>IPv4 / IPv6</td><td>br_validate_ipv4/6(), nf_ct_bridge_pre()</td><td>Header sanity checks and trimming; fragments are reassembled for tracking and refragmented on egress (br_ip_fragment)</td></tr>
+<tr data-h="hl4"><td>TCP / UDP / ICMP</td><td>nf_ct_get_tuple(), tcp_pkt_to_tuple(), udp_pkt_to_tuple(), GRO/GSO</td><td>Ports (or ICMP type/code/id) form the conntrack tuple; checksums are verified or trusted via skb->ip_summed; GRO merges segments in, GSO splits them out</td></tr>
+<tr data-h="hct"><td>conntrack state</td><td>nf_conntrack_in(), __nf_conntrack_confirm()</td><td>Entry is created unconfirmed, updated by the L4 state machine, and confirmed at POST_ROUTING</td></tr>
+<tr data-h="hfdb"><td>Bridge FDB</td><td>br_fdb_update(), br_fdb_find_rcu(), br_flood()</td><td>Maps (MAC, VID) to a port, learned from the source MAC of each received frame; ageing_time defaults to 300 s; a miss floods. Inspect with bridge fdb show</td></tr>
+<tr data-h="hnbr"><td>Neighbour tables</td><td>neigh_resolve_output(), arp_process(), neigh_update(), br_do_proxy_suppress_arp()</td><td>Maps IP to MAC on each host (and on br0 if it has an IP) through the states INCOMPLETE, REACHABLE, STALE, DELAY, PROBE and FAILED. Inspect with ip neigh show dev br0</td></tr>
+<tr data-h="harp"><td>ARP</td><td>br_flood(), br_nf_forward_arp(), arp_rcv()</td><td>The request is broadcast and flooded; the reply is unicast and follows the FDB. The bridge itself never resolves IPs unless neigh suppression is on</td></tr>
+<tr data-h="hother"><td>ARP, IGMP/MLD, ND</td><td>br_nf_forward_arp(), br_multicast_rcv(), br_do_suppress_nd()</td><td>arptables hooks; multicast snooping parses IGMP/MLD reports; neighbor suppression answers ARP/ND locally</td></tr>
+</tbody></table></div></section>
+<div class="leg">Function names follow mainline Linux (~6.x). Driver-specific names vary by chipset (ath9k, iwlwifi, mt76, igb, r8169, stmmac…); <code>&lt;drv&gt;</code> marks those points.</div>
+<script>
+const L=[
+{n:"Wi-Fi hardware",s:"LAN",c:"--hw"},
+{n:"Wi-Fi driver + mac80211",s:"wlan0",c:"--w"},
+{n:"Bridge (br0) + core rx/tx",s:"net/bridge",c:"--b"},
+{n:"Ethernet driver",s:"eth0",c:"--e"},
+{n:"Ethernet hardware",s:"WAN",c:"--hw"}];
+const D=[[
+[0,"802.11 frame received","radio → RX DMA ring","The radio decodes the frame, checks FCS, and the NIC DMAs it into a host RX descriptor ring, then raises an interrupt.","Hardware, no kernel code yet."],
+[1,"<drv>_irq_handler()","drivers/net/wireless/<vendor>/","The top-half ISR acknowledges the interrupt, masks it, and schedules NAPI so the heavy work runs in softirq context.","Calls napi_schedule() (or a tasklet on older drivers)."],
+[1,"ieee80211_rx_napi()","net/mac80211/rx.c","The driver hands the received frame to mac80211 with radio metadata (signal, rate, band). mac80211 runs its RX handler chain: duplicate check, decryption, defragmentation, A-MPDU reorder, sta lookup.","Frame is still in 802.11 format here."],
+[1,"ieee80211_deliver_skb()","net/mac80211/rx.c","Converts 802.11 to 802.3 (Ethernet) and delivers it up. In AP mode, mac80211 may bridge intra-BSS traffic itself. Otherwise the skb is passed to the stack on the wlan0 netdev.","Ends in netif_receive_skb() / napi_gro_receive()."],
+[2,"__netif_receive_skb_core()","net/core/dev.c","Runs taps and ingress hooks, then checks skb->dev->rx_handler. Because wlan0 was enslaved to br0, the handler is br_handle_frame.","Registered by br_add_if() via netdev_rx_handler_register()."],
+[2,"br_handle_frame()","net/bridge/br_input.c","Drops link-local/STP frames as appropriate, verifies port state (forwarding), then calls NF_HOOK at NF_BR_PRE_ROUTING with br_handle_frame_finish() as the continuation.","Returns RX_HANDLER_CONSUMED: the frame no longer goes to IP on wlan0.","pre"],
+[2,"NF_BR_PRE_ROUTING → ebtables / nft bridge","net/bridge/br_input.c, net/bridge/netfilter/","Bridge-family hooks run in priority order. First the ebtables broute table (can divert a frame up to the IP stack instead of bridging it), then the nat table (dnat/redirect on MAC).","Legacy ebtables and nftables family bridge share these hook points.","pre"],
+[2,"br_nf_pre_routing() → iptables","net/bridge/br_netfilter_hooks.c","If br_netfilter is loaded and bridge-nf-call-iptables=1, IPv4 frames are re-presented to the IP hooks: bridge state is saved in skb->nf_bridge, then NF_INET_PRE_ROUTING runs (raw, conntrack, mangle, nat). A DNAT here can turn a bridged frame into a routed one.","Use -m physdev to match the bridge port in these rules.","pre"],
+[2,"br_handle_frame_finish()","net/bridge/br_input.c","Learns the source MAC (br_fdb_update), then looks up the destination in the forwarding database with br_fdb_find_rcu(). Known unicast on eth0 → forward; unknown/broadcast → br_flood(); for br0's own MAC → br_pass_frame_up().","This is where the bridge decision is made."],
+[2,"br_forward() → __br_forward()","net/bridge/br_forward.c","Sets skb->dev to the egress port (eth0), then calls NF_HOOK at NF_BR_FORWARD with br_forward_finish() as the continuation.","VLAN filtering and isolation checks happen around here.","fwd"],
+[2,"NF_BR_FORWARD → ebtables filter","net/bridge/netfilter/ebtable_filter.c","ebtables filter FORWARD rules (MAC, VLAN, protocol matches) run first, then br_nf_forward_ip() re-runs NF_INET_FORWARD for IPv4 (iptables FORWARD chain) if bridge-nf-call-iptables is on. A DROP verdict ends the packet here.","Firewalling of bridged LAN to WAN traffic normally lives here.","fwd"],
+[2,"NF_BR_POST_ROUTING","net/bridge/br_forward.c, br_netfilter_hooks.c","br_forward_finish() calls NF_HOOK at NF_BR_POST_ROUTING. br_nf_post_routing() runs the iptables mangle/nat POSTROUTING chains (SNAT/MASQUERADE for bridged traffic), and ebtables nat POSTROUTING (source MAC rewrite) also runs. The continuation is br_dev_queue_push_xmit().","Last chance to modify or drop before egress.","post"],
+[2,"br_dev_queue_push_xmit()","net/bridge/br_forward.c","Checks the frame fits the egress MTU (or GSO-segments it) and hands it to the normal transmit path.","Calls dev_queue_xmit(skb)."],
+[3,"__dev_queue_xmit()","net/core/dev.c","Picks a TX queue, enqueues to the qdisc (e.g. fq_codel/mq), and runs the qdisc when the queue is not stopped.","tc egress filters run here."],
+[3,"sch_direct_xmit() → dev_hard_start_xmit()","net/sched/sch_generic.c, net/core/dev.c","Dequeues the skb, takes the TX queue lock, and calls the device's ops. Handles offloads such as checksum and TSO/GSO.",""],
+[3,"<drv>_start_xmit()","ndo_start_xmit in eth driver","DMA-maps the skb, fills a TX descriptor, and writes the tail/doorbell register so the NIC starts fetching the frame.","Returns NETDEV_TX_OK, or stops the queue if the ring is full."],
+[4,"Frame on the wire","MAC/PHY","The MAC serializes the frame and the PHY transmits it.","TX completion is a separate, later event (next steps)."],
+[4,"TX descriptor written back","MAC → host TX ring","After sending, the MAC sets a done bit in the TX descriptor and raises a TX-complete interrupt, often coalesced.","Some NICs write back only every N descriptors."],
+[3,"<drv>_intr() → napi_schedule()","Ethernet driver ISR","The ISR masks the interrupt and schedules the NAPI poll. TX cleanup shares the poll with RX on most drivers.",""],
+[3,"<drv>_clean_tx_irq()","Ethernet driver NAPI poll","Walks the TX ring from next_to_clean while descriptors are done: dma_unmap the buffer, free the skb with napi_consume_skb(), update tx_packets/tx_bytes.","Freeing here keeps skb frees batched in softirq."],
+[3,"netdev_tx_completed_queue()","include/linux/netdevice.h (BQL)","Reports completed bytes to Byte Queue Limits, which adapts how much data may sit in the hardware ring so qdisc latency stays low.","Byte Queue Limits are per TX queue."],
+[3,"netif_tx_wake_queue() → __netif_schedule()","net/core/dev.c","Restarts a queue that ndo_start_xmit stopped when the ring filled. __netif_schedule() queues the qdisc on the softirq list and net_tx_action() calls __qdisc_run() to send anything that was waiting.","Cycle complete: the next dequeued skb goes to <drv>_start_xmit()."]
+],[
+[4,"Ethernet frame received","PHY/MAC → RX DMA ring","The MAC validates the frame and DMAs it into a host RX ring buffer, then signals an interrupt (or coalesced IRQ).","Hardware, no kernel code yet."],
+[3,"<drv>_intr() → napi_schedule()","Ethernet driver ISR","The ISR masks the RX interrupt and schedules NAPI, moving the work into softirq context.",""],
+[3,"<drv>_poll() → clean_rx_irq()","Ethernet driver NAPI poll","Called from net_rx_action(). Reads completed descriptors, builds an skb around the buffer, sets protocol via eth_type_trans(), and refills the ring.","Bounded by the NAPI budget (typically 64)."],
+[3,"napi_gro_receive()","net/core/gro.c","Optionally coalesces same-flow segments (GRO), then passes the skb into the stack.","Ends in netif_receive_skb_list()/__netif_receive_skb_core()."],
+[2,"__netif_receive_skb_core()","net/core/dev.c","Finds eth0's rx_handler, which is br_handle_frame because eth0 is a br0 port.","Registered by br_add_if()."],
+[2,"br_handle_frame()","net/bridge/br_input.c","Checks port state and runs NF_BR_PRE_ROUTING (ebtables broute/nat, then br_nf_pre_routing() into iptables PREROUTING when br_netfilter is on), then continues into br_handle_frame_finish().","Same hooks as the LAN → WAN direction.","pre"],
+[2,"br_handle_frame_finish()","net/bridge/br_input.c","Learns the source MAC on eth0 and looks up the destination. A station learned on wlan0 → forward to that port; broadcast → flood.","Multicast may consult the IGMP/MLD snooping tables."],
+[2,"br_forward() → br_dev_queue_push_xmit()","net/bridge/br_forward.c","Sets skb->dev = wlan0 and runs NF_BR_FORWARD (ebtables filter, then br_nf_forward_ip() into iptables FORWARD), then NF_BR_POST_ROUTING (br_nf_post_routing(), ebtables nat), then calls dev_queue_xmit().","Firewall rules for WAN to LAN bridged traffic live here.","fwd"],
+[1,"ieee80211_subif_start_xmit()","net/mac80211/tx.c","ndo_start_xmit for the wlan0 netdev. Looks up the destination station and converts 802.3 to 802.11 with the right address fields for AP/STA mode.","Runs via __dev_queue_xmit() (usually noqueue; mac80211 has its own queues)."],
+[1,"ieee80211_xmit() → ieee80211_tx()","net/mac80211/tx.c","Applies rate control, QoS/WMM access category mapping, and encryption. Enqueues onto the per-station txq.",""],
+[1,"drv_tx() / wake_tx_queue()","net/mac80211/driver-ops.h","mac80211 calls the driver's tx or wake_tx_queue op, which pulls frames from the txq and builds hardware descriptors.","Driver-specific from here."],
+[0,"Radio transmits 802.11 frame","TX DMA ring → RF","The NIC DMAs the frame, contends for the channel, transmits, and waits for the ACK. Hardware retries follow the rate series mac80211 supplied.","Retry count and final rate are recorded per frame."],
+[0,"TX status interrupt","hardware → host","The chip reports the outcome (acked or not, retries, final rate, airtime) in a status descriptor or firmware event and raises an interrupt.","Some chips report status via firmware events."],
+[1,"<drv>_tx_complete() / tx status work","Wi-Fi driver","A tasklet or NAPI poll reads the status, unmaps DMA, and translates it into IEEE80211_TX_STAT_* flags in the skb's tx info.","Then calls into mac80211."],
+[1,"ieee80211_tx_status_skb()","net/mac80211/status.c","Updates station statistics, feeds rate_control_tx_status() so the rate algorithm (minstrel_ht) adapts, handles ACK for management frames, and frees the skb (or returns it to a socket for TX timestamps).","Also feeds station-inactivity tracking."],
+[1,"ieee80211_wake_queue() / wake_tx_queue","net/mac80211/util.c","When the driver frees hardware slots, mac80211 wakes the txq so pending frames from other stations are pulled through drv_tx again.","Cycle complete."]
+]];
+const ins=(x,p,a,af)=>{const k=D[x].findIndex(s=>s[1].startsWith(p));D[x].splice(af?k+1:k,0,...a)};
+const CT=[
+[2,"br_validate_ipv4() / ipv6()","net/bridge/br_netfilter_hooks.c","br_netfilter first pulls any VLAN or PPPoE encapsulation (nf_bridge_pull_encap_header) so skb->data sits at the IP header, then sanity-checks it: version, header length, total length against skb->len (trimming Ethernet padding), and header checksum. It sets the network and transport header offsets.","Malformed IP is dropped before conntrack sees it.","hip"],
+[2,"nf_conntrack_in()","net/netfilter/nf_conntrack_core.c","Runs at the conntrack hook on NF_INET_PRE_ROUTING (via br_netfilter), or at NF_BR_PRE_ROUTING via nf_conntrack_bridge (nf_ct_bridge_pre), which reassembles fragments first. It is skipped if a raw-table notrack rule matched. nf_ct_get_tuple() reads the IP addresses and the L4 ports (or ICMP type/code/id) into a tuple.","Tuple = src ip, dst ip, protocol, src port, dst port.","hip hl4 hct"],
+[2,"resolve_normal_ct() → init_conntrack()","net/netfilter/nf_conntrack_core.c","Hashes the tuple (per netns and zone) and looks it up. Hit: attaches the entry and sets ctinfo to ESTABLISHED, or ESTABLISHED_REPLY if the reply tuple matched. Miss: nf_conntrack_alloc() takes a struct nf_conn (limited by nf_conntrack_max), the tuple is inverted for the reply direction, the L4 ->new() runs, extensions and expectations (helpers) are set up, and the entry goes on the unconfirmed list with ctinfo NEW.","The new entry is not in the main hash yet.","hct"],
+[2,"nf_conntrack_handle_packet() → tcp/udp state","net/netfilter/nf_conntrack_proto_tcp.c, _udp.c","TCP: validates flags and checksum, steps the state machine (SYN_SENT, SYN_RECV, ESTABLISHED, FIN_WAIT...) and runs tcp_in_window() sequence checks; out-of-window packets become INVALID. UDP: marks the flow UNREPLIED until a reply is seen, then ASSURED, and refreshes the timeout.","Defaults: TCP ESTABLISHED 5 days, SYN_SENT 120 s; UDP 30 s, 120 s for streams.","hl4 hct"]];
+const CF=[2,"nf_ct_bridge_confirm() → __nf_conntrack_confirm()","net/bridge/netfilter/nf_conntrack_bridge.c","At POST_ROUTING, a packet that survived every filter confirms its entry: it leaves the unconfirmed list, is inserted into the hash for both directions, IPS_CONFIRMED is set and the timeout starts. A packet dropped earlier never enters the table.","conntrack -L lists only confirmed entries.","hct post"];
+const DT=[1,"ieee80211_rx_h_data() → ieee80211_data_to_8023()","net/mac80211/rx.c, net/wireless/util.c","Maps addr1-4 to destination and source MAC using ToDS/FromDS, strips the QoS control field and LLC/SNAP header (RFC 1042 or Bridge-Tunnel) keeping the EtherType, and writes a 14-byte Ethernet header. A-MSDUs are split into subframes first.","A VLAN tag is plain payload after the EtherType here.","h80211"];
+const ET=[1,"eth_type_trans()","net/ethernet/eth.c","Records the Ethernet header (skb_reset_mac_header), pulls 14 bytes so skb->data points past it, sets pkt_type (host, broadcast, multicast, other-host) from the destination MAC, and sets skb->protocol from the EtherType. A tag left in the payload shows as 0x8100.","From here the bridge sees skb->data at the VLAN or IP header; eth_hdr(skb) reaches the Ethernet header.","heth"];
+const VD=[2,"vlan_do_receive()","net/8021q/vlan_core.c","A tag stripped by the NIC (NETIF_F_HW_VLAN_CTAG_RX) sits in skb->vlan_tci; otherwise it is still in the payload. If a sub-interface such as eth0.10 exists, the skb moves to it here and skips the bridge port. Otherwise the tag rides along for the bridge.","Enable vlan_filtering on br0 to have the bridge act on tags.","hvlan"];
+const BV=[2,"br_allowed_ingress() / br_handle_vlan()","net/bridge/br_vlan.c","With vlan_filtering=1, br_allowed_ingress() (top of br_handle_frame_finish) checks the VID against the port's table: untagged frames get the port PVID, unlisted VIDs are dropped. On egress br_handle_vlan() (in __br_forward) strips or keeps the tag per the port's untagged flag. The FDB is keyed by MAC and VID.","With filtering off, tags are opaque payload.","hvlan"];
+const VT=[1,"ieee80211_build_hdr()","net/mac80211/tx.c","Builds the 802.11 header from the Ethernet header: addr1-4 by interface type, LLC/SNAP plus EtherType inserted, QoS control from skb->priority (DSCP mapped to a WMM access category). Needs headroom on the skb.","The Ethernet header is replaced, not kept.","h80211"];
+const VX=[3,"validate_xmit_skb()","net/core/dev.c","Adapts the skb to the egress NIC: a tag is pushed into the payload if the NIC lacks hardware VLAN insertion; a GRO-merged TCP skb is split by skb_gso_segment() if the NIC lacks TSO; skb_checksum_help() fills the L4 checksum if the NIC cannot.","GRO in plus GSO out keeps the flow efficient across the bridge.","hvlan hl4"];
+ins(0,"ieee80211_rx_napi",[DT],1);ins(0,"ieee80211_deliver_skb",[ET],1);
+[0,1].forEach(x=>{ins(x,"__netif_receive_skb_core",[VD],1);ins(x,"br_handle_frame_finish",[BV],0)});
+ins(0,"br_nf_pre_routing",CT,1);ins(1,"br_handle_frame()",CT,1);
+ins(0,"br_dev_queue",[CF],0);ins(1,"br_forward()",[CF],1);
+ins(1,"ieee80211_subif_start_xmit",[VT],1);ins(0,"sch_direct_xmit",[VX],1);
+const HS=[["^ieee80211_(rx_|build_hdr)","w 80211 80211,llc"],["^(ieee80211_xmit|drv_tx)","w 80211 80211"],["^(ieee80211_(deliver|subif)|<drv>_poll|__dev_queue|sch_direct|br_dev_queue)","e eth eth"],["^(eth_type|__netif|vlan_do|br_handle_frame|br_forward|NF_BR_PRE|br_allowed)","e L3 eth,vlan"],["^br_nf_pre","e L3 vlan"],["^br_validate","e ip ip"],["^(nf_conntrack_in|resolve_normal|NF_BR_FORWARD|NF_BR_POST|nf_ct_bridge)","e ip ip,l4"],["^nf_conntrack_handle","e ip l4"],["^validate_xmit","e eth vlan,l4"],["^napi_gro","e eth eth,ip,l4"],["_start_xmit\\(\\)$","e eth eth,vlan"]];
+HS.push(["^(br_do_proxy|br_pass_frame)","e L3 eth,vlan,ip"],["^(br_flood|br_handle_vlan)","e L3 eth,vlan"],["^br_nf_forward","e L3 eth,vlan,ip"],["^(neigh|arp_)","e eth ip"]);
+const pk=(x,p)=>D[x].find(s=>s[1].startsWith(p)),pa=(x,a)=>a.map(p=>pk(x,p));
+const WR=pa(0,["<drv>_irq","ieee80211_rx_napi","ieee80211_rx_h_data","ieee80211_deliver_skb","eth_type_trans","__netif_receive_skb_core","br_handle_frame()"]);
+const ER=pa(1,["<drv>_intr","<drv>_poll","napi_gro_receive","__netif_receive_skb_core","vlan_do_receive","br_handle_frame()"]);
+const ET2=pa(0,["br_dev_queue","__dev_queue_xmit","validate_xmit_skb","<drv>_start_xmit","Frame on the wire"]);
+const WT=pa(1,["ieee80211_subif_start_xmit","ieee80211_build_hdr","ieee80211_xmit","drv_tx","Radio transmits"]);
+const AI=[2,"br_allowed_ingress() → PVID","net/bridge/br_vlan.c","The frame arrives untagged on wlan0, an access port. br_allowed_ingress() assigns the port PVID (VID 10 here) into skb->vlan_tci, so every later lookup uses (MAC, VID 10). A port with no PVID would drop it.","bridge vlan add dev wlan0 vid 10 pvid untagged","hvlan"];
+const AE=[2,"br_allowed_ingress() → tagged VID","net/bridge/br_vlan.c","The frame arrives tagged on eth0, a trunk port, and the tag is already in skb->vlan_tci. br_allowed_ingress() checks that VID 10 is in eth0's VLAN table (else drop) and keeps the tag.","bridge vlan add dev eth0 vid 10","hvlan"];
+const LR=[2,"br_handle_frame_finish(): learn + broadcast","net/bridge/br_input.c","br_fdb_update() records (STA MAC, VID 10) → wlan0 in the FDB. The destination is broadcast, so there is no FDB lookup: the frame is flooded by br_flood(), and a clone goes up to br0 via br_pass_frame_up().","Learning happens on every frame; flooding only for broadcast, unknown unicast and unsnooped multicast.","hfdb harp"];
+const SP=[2,"br_do_proxy_suppress_arp()","net/bridge/br_arp_nd_proxy.c","Optional branch when BR_NEIGH_SUPPRESS is set on the egress port. The request is parsed and the target IP is looked up in br0's neighbour table (arp_tbl). A valid entry makes br_arp_send() answer on the target's behalf and the flood is skipped. A miss floods normally.","Used to cut broadcast airtime on Wi-Fi and EVPN bridges.","hnbr harp"];
+const FL=[2,"br_flood() → maybe_deliver() → should_deliver()","net/bridge/br_forward.c","Walks every port except the ingress one. should_deliver() needs the port in forwarding state, BR_BCAST_FLOOD set, isolation rules satisfied, and br_allowed_egress() accepting the VID. Each match gets a clone from deliver_clone().","With one other port (eth0) the result is a single copy.","hfdb"];
+const PU=[2,"br_pass_frame_up() → arp_rcv()","net/bridge/br_input.c, net/ipv4/arp.c","A clone is delivered to br0 itself, where arp_process() runs. If the target IP is not on br0 it is ignored. If it is, neigh_update() learns the sender (STALE) and arp_send() replies through br_dev_xmit(), which does an FDB lookup for the unicast reply.","Matters only when the device has an IP on br0.","hnbr harp"];
+const EE=[2,"br_handle_vlan() egress → eth0","net/bridge/br_vlan.c","eth0 is a trunk with VID 10 tagged, so the tag stays in skb->vlan_tci and goes on the wire via hardware insertion or validate_xmit_skb().","VLAN flags per port decide tag or strip.","hvlan"];
+const EW=[2,"br_handle_vlan() egress → wlan0","net/bridge/br_vlan.c","wlan0 is pvid untagged for VID 10, so __vlan_hwaccel_clear_tag() strips the tag before the frame reaches mac80211.","Wi-Fi cannot carry the tag; use separate SSIDs or AP_VLAN interfaces per VLAN.","hvlan"];
+const NA=[2,"br_nf_forward_arp()","net/bridge/br_netfilter_hooks.c","At NF_BR_FORWARD the ARP frame meets ebtables arp matches and, with bridge-nf-call-arptables=1, the arptables FORWARD chain. IP conntrack does not apply to ARP.","Useful against ARP spoofing between LAN ports.","harp"];
+const RF=[2,"br_handle_frame_finish(): learn + FDB hit","net/bridge/br_input.c","br_fdb_update() learns the replying host (MAC, VID 10) → eth0. The reply is unicast to the STA, so br_fdb_find_rcu() finds the entry created by the request and br_forward() sends it to that one port. After ageing_time (300 s) the entry would be gone and the frame flooded as unknown unicast.","Each frame from a source refreshes its entry.","hfdb"];
+const DF=[2,"br_handle_frame_finish(): FDB hit","net/bridge/br_input.c","Learns the source and looks up (dst MAC, VID 10), which hits eth0, so br_forward() sends to that port only. The sender's neighbour entry already resolved the MAC, so the bridge never reads the IP address. With br_netfilter on, ebtables/iptables and conntrack still apply as in Path 1.","A destination equal to br0's own MAC goes up to the stack instead.","hfdb"];
+const OW=[0,"neigh_resolve_output() → arp_solicit()","station's own stack: net/core/neighbour.c, net/ipv4/arp.c","The Wi-Fi host has no entry for the target IP, so the packet is queued, the neighbour goes INCOMPLETE, and arp_solicit() broadcasts who-has to ff:ff:ff:ff:ff:ff. It retries every retrans_time (1 s) up to mcast_solicit (3) times, then FAILED.","IP-to-MAC state lives in each host, not in the bridge.","hnbr harp"];
+const OE=[4,"arp_process() → arp_send()","Ethernet host's stack: net/ipv4/arp.c","The host learns the sender's IP and MAC into its neighbour table and answers with a unicast is-at to the sender MAC, tagged VID 10.","Its reply is what teaches the bridge the host's port.","hnbr harp"];
+const OD=[0,"ip_finish_output2() → neighbour lookup","station's own stack: net/ipv4/ip_output.c","Before transmit, the IP layer finds the next hop (the destination itself on a shared subnet, else the gateway) and calls ip_neigh_for_gw() → __ipv4_neigh_lookup_noref() to fetch the struct neighbour from arp_tbl. A miss creates an INCOMPLETE entry and triggers ARP (the ARP request flow).","This is where the neighbour table is consulted.","hnbr"];
+const OD2=[0,"neigh_output() → neigh_hh_output()","station's own stack: include/net/neighbour.h","If the entry is NUD_CONNECTED (REACHABLE after the ARP reply) and has a cached header, neigh_hh_output() copies the cached 14-byte Ethernet header (dest = neigh->ha) into the skb headroom and calls dev_queue_xmit(). Otherwise n->output() runs: neigh_resolve_output() moves STALE to DELAY via neigh_event_send(), then dev_hard_header() writes neigh->ha as the destination.","REACHABLE goes STALE after base_reachable_time (about 30 s); DELAY then PROBE re-verify with a unicast ARP.","hnbr"];
+const H0=pk(0,"802.11 frame"),H1=pk(1,"Ethernet frame"),NF=pk(0,"NF_BR_FORWARD");
+D.push([OW,H0,...WR,AI,LR,SP,FL,PU,EE,NA,...ET2],[OE,H1,...ER,AE,RF,EW,NA,...WT],[OD,OD2,H0,...WR,AI,DF,EE,NF,...ET2]);
+HS.unshift(["^neigh_output","e eth eth"],["^ip_finish","e ip ip"]);
+let bn=false;
+const NB=[2,"br_nf_forward_ip() → iptables FORWARD","net/bridge/br_netfilter_hooks.c","With br_netfilter on, the bridged IPv4 frame also runs NF_INET_FORWARD. The iptables FORWARD chain sees it as an IP packet, can match -m physdev for the in/out bridge ports, and can match conntrack state (NEW, ESTABLISHED). A DROP verdict ends the packet here, after the ebtables FORWARD rules.","Off: only ebtables/nft bridge rules run at this point.","fwd hip"];
+const mk4=()=>bn?[OD,OD2,H0,...WR,...pa(0,["NF_BR_PRE_ROUTING","br_nf_pre_routing","br_validate","nf_conntrack_in","resolve_normal_ct","nf_conntrack_handle_packet"]),AI,DF,EE,NF,NB,...pa(0,["NF_BR_POST_ROUTING","nf_ct_bridge_confirm"]),...ET2]:[OD,OD2,H0,...WR,AI,DF,EE,NF,...ET2];
+D[4]=mk4();bn=true;D[5]=mk4();bn=false;
+let vl=true,L4="TCP";
+function hdr(s){const st=(HS.find(h=>new RegExp(h[0]).test(s[1]))||[0,s[0]<2?"w 80211 ":"e eth "])[1].split(" ");
+const ar=d==2||d==3,tg=vl&&!(d>1&&s[0]<2),w=st[0]==="w",C=[...(w?["80211","llc"]:["eth"]),...(tg?["vlan"]:[]),...(ar?["arp"]:["ip","l4","pl"])];
+const nm={80211:"802.11 header",llc:"LLC/SNAP",eth:"Ethernet",vlan:"802.1Q tag",ip:"IP",arp:"ARP",l4:L4,pl:"payload"};
+const mp=c=>ar&&c==="ip"?"arp":c;
+const at=mp(st[1]==="L3"?(tg?"vlan":"ip"):st[1]),us=st[2].split(",").map(mp);
+$("st").innerHTML=C.map(c=>`<span class="c${us.includes(c)?" u":""}${c===at?" at":""}">${nm[c]}</span>`).join("");
+const ks=(s[5]||"").split(" ").concat(us.map(u=>"h"+(u==="llc"?"80211":u)));
+document.querySelectorAll("tr[data-h]").forEach(r=>r.classList.toggle("hl",ks.includes(r.dataset.h)))}
+let d=0,i=0,tm=null;const $=id=>document.getElementById(id);
+function draw(){L[4].s=d>1?"LAN":"WAN";const dg=$("dg");dg.innerHTML="";const S=D[d];
+L.forEach((l,li)=>{const b=document.createElement("div");b.className="band";b.style.setProperty("--c",`var(${l.c})`);
+b.innerHTML=`<h2>${l.n}<small>${l.s}</small></h2>`;
+S.forEach((s,k)=>{if(s[0]!==li)return;const n=document.createElement("button");n.className="n";n.dataset.k=k;n.style.setProperty("--c",`var(${l.c})`);
+n.innerHTML=`<span class="k">${k+1}</span>`+esc(s[1]);n.onclick=()=>{go(k)};b.appendChild(n)});dg.appendChild(b)});go(i,true)}
+function esc(t){return t.replace(/&/g,"&amp;").replace(/</g,"&lt;")}
+function go(k,noScroll){i=Math.max(0,Math.min(D[d].length-1,k));const s=D[d][i],l=L[s[0]];
+document.querySelectorAll(".n").forEach(n=>{const j=+n.dataset.k;n.classList.toggle("act",j===i);n.classList.toggle("done",j<i)});
+$("tg").textContent=l.n;$("tg").style.setProperty("--c",`var(${l.c})`);
+$("fn").textContent=s[1];$("fl").textContent=s[2];$("ds").textContent=s[3];$("nt").textContent=s[4];hdr(s);
+$("ct").textContent=`Step ${i+1} of ${D[d].length}`;
+if(!noScroll){const a=document.querySelector(".n.act");a&&a.scrollIntoView({block:"nearest",behavior:matchMedia("(prefers-reduced-motion:reduce)").matches?"auto":"smooth"})}}
+function stop(){clearInterval(tm);tm=null;$("pl").textContent="Play"}
+const FN=["Path 1 · LAN → WAN","Path 1 · WAN → LAN","Path 2 · ARP request (Wi-Fi → Eth)","Path 2 · ARP reply (Eth → Wi-Fi)","Path 2 · Unicast L2 (Wi-Fi → Eth)","Path 2 · Unicast L3, br_netfilter on (Wi-Fi → Eth)"];
+function setDir(x){stop();d=x;i=0;FN.forEach((_,k)=>$("d"+k).classList.toggle("on",k===x));draw()}
+FN.forEach((n,k)=>{const b=document.createElement("button");b.textContent=n;b.id="d"+k;b.className=k?"":"on";b.onclick=()=>setDir(k);$("fb").appendChild(b)});
+$("nx").onclick=()=>{stop();go(i+1)};$("pv").onclick=()=>{stop();go(i-1)};
+$("pl").onclick=()=>{if(tm)return stop();if(i>=D[d].length-1)i=-1;$("pl").textContent="Pause";go(i+1);tm=setInterval(()=>{if(i>=D[d].length-1)return stop();go(i+1)},2200)};
+addEventListener("keydown",e=>{if(e.key==="ArrowRight"||e.key==="ArrowDown"){if(e.target.tagName!=="BUTTON"||e.target.classList.contains("n")){e.preventDefault();stop();go(i+1)}}if(e.key==="ArrowLeft"||e.key==="ArrowUp"){e.preventDefault();stop();go(i-1)}});
+$("vl").onchange=e=>{vl=e.target.checked;go(i,true)};$("l4s").onchange=e=>{L4=e.target.value;go(i,true)};
+draw();
+</script></body></html>
